@@ -4,6 +4,7 @@ import sqlite3
 import plotly.express as px
 import pydeck as pdk
 import requests
+import time
 from datetime import datetime, timedelta
 
 # --- FONCTION DE MISE À JOUR AUTO ---
@@ -178,9 +179,9 @@ with tab2:
     st.info("Ce flux affiche la disponibilité immédiate des bornes via l'API officielle d'Oslo.")
 
     # --- 1. BOUTON DE MISE À JOUR (Toujours visible) ---
-    if st.button("🔄 Actualiser les données (Interroger l'API)"):
+    if st.button(" Actualiser les données "):
         with st.spinner("Connexion à l'API d'Oslo..."):
-            sync_live_data() # Lance la fonction de mise à jour
+            sync_live_data()
             st.success("Données mises à jour !")
             time.sleep(1)
             st.rerun()
