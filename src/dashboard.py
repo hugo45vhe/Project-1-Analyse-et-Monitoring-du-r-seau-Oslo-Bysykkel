@@ -174,31 +174,55 @@ with tab1:
 # ONGLET 2 : TEMPS REEL
 # ---------------------------------------------------------
 with tab2:
-    st.header("Etat du reseau en direct")
-    
+    st.header("État du réseau en direct")
+    st.info("Ce flux affiche la disponibilité immédiate des bornes via l'API officielle d'Oslo.")
+
+    # --- 1. BOUTON DE MISE À JOUR (Toujours visible) ---
+    if st.button("🔄 Actualiser les données (Interroger l'API)"):
+        with st.spinner("Connexion à l'API d'Oslo..."):
+            sync_live_data() # Lance la fonction de mise à jour
+            st.success("Données mises à jour !")
+            time.sleep(1)
+            st.rerun()
+
+    # --- 2. AFFICHAGE DES DONNÉES ---
     try:
         conn = sqlite3.connect('oslo_live.db')
         df_live = pd.read_sql("SELECT * FROM live_stations", conn)
         conn.close()
 
         if not df_live.empty:
-            kpi1, kpi2, kpi3 = st.columns(3)
-            # Utilisation de .get() pour éviter l'erreur si la colonne manque par miracle
-            bikes = df_live['bikes_available'].sum() if 'bikes_available' in df_live.columns else 0
-            docks = df_live['docks_available'].sum() if 'docks_available' in df_live.columns else 0
-            
-            kpi1.metric("Velos disponibles", int(bikes))
-            kpi2.metric("Places vides", int(docks))
-            kpi3.metric("Derniere mise a jour", df_live['last_updated'].max()[11:19])
+            # Calcul des indicateurs
+            total_bikes = df_live['bikes_available'].sum()
+            total_docks = df_live['docks_available'].sum()
+            derniere_maj = df_live['last_updated'].max()
 
+            # Affichage des KPIs
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Vélos disponibles", int(total_bikes))
+            k2.metric("Places libres", int(total_docks))
+            k3.metric("Heure API", str(derniere_maj)[11:19])
+
+            # Carte interactive
+            st.subheader("Carte des stations")
             fig_live = px.scatter_mapbox(
-                df_live, lat="lat", lon="lon", size="bikes_available",
-                color="bikes_available", color_continuous_scale="Viridis",
-                hover_name="name", zoom=11, mapbox_style="carto-positron", height=600
+                df_live, 
+                lat="lat", lon="lon", 
+                size="bikes_available", 
+                color="bikes_available",
+                color_continuous_scale="Viridis",
+                hover_name="name", 
+                hover_data={"bikes_available": True, "docks_available": True, "lat": False, "lon": False},
+                zoom=11.5, 
+                mapbox_style="carto-positron", 
+                height=600
             )
             st.plotly_chart(fig_live, use_container_width=True)
+            
+            st.caption(f"Dernier rafraîchissement local : {time.strftime('%H:%M:%S')}")
         else:
-            st.warning("Donnees en cours de telechargement...")
-            st.button("Forcer l'actualisation")
+            st.warning("La base de données est vide. Cliquez sur le bouton 'Actualiser' pour charger les données.")
+
     except Exception as e:
-        st.error(f"Erreur affichage : {e}")
+        st.error(f"Erreur d'affichage : {e}")
+        st.info("Conseil : Cliquez sur le bouton d'actualisation pour recréer la base de données.")
