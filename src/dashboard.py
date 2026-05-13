@@ -47,8 +47,8 @@ def sync_live_data():
             
             df_l = pd.merge(df_i, df_s, on='station_id')
             df_l.rename(columns={'num_bikes_available': 'bikes_available', 'num_docks_available': 'docks_available'}, inplace=True)
-            df_l['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
+            heure_paris = datetime.utcnow() + timedelta(hours=2) 
+            df_l['last_updated'] = heure_paris.strftime("%Y-%m-%d %H:%M:%S")            
             df_l.to_sql('live_stations', conn, if_exists='replace', index=False)
         except Exception as e:
             st.error(f"Erreur API : {e}")
@@ -176,7 +176,7 @@ with tab1:
 # ---------------------------------------------------------
 with tab2:
     st.header("État du réseau en direct")
-    st.info("Ce flux affiche la disponibilité immédiate des bornes via l'API officielle d'Oslo.")
+    st.info("Note technique : Conformement au RGPD, l'API Open Data d'Oslo ne publie pas les trajets en cours. Ce flux affiche le taux de remplissage des bornes.")
 
     # --- 1. BOUTON DE MISE À JOUR (Toujours visible) ---
     if st.button(" Actualiser les données "):
@@ -202,7 +202,7 @@ with tab2:
             k1, k2, k3 = st.columns(3)
             k1.metric("Vélos disponibles", int(total_bikes))
             k2.metric("Places libres", int(total_docks))
-            k3.metric("Heure API", str(derniere_maj)[11:19])
+            k3.metric("Dernière mise à jour à (Heure Paris)", str(derniere_maj)[11:19])
 
             # Carte interactive
             st.subheader("Carte des stations")
@@ -220,7 +220,7 @@ with tab2:
             )
             st.plotly_chart(fig_live, use_container_width=True)
             
-            st.caption(f"Dernier rafraîchissement local : {time.strftime('%H:%M:%S')}")
+            st.caption(f"Dernier rafraîchissement heure Paris : {time.strftime('%H:%M:%S')}")
         else:
             st.warning("La base de données est vide. Cliquez sur le bouton 'Actualiser' pour charger les données.")
 
