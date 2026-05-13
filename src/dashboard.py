@@ -7,34 +7,54 @@ import requests
 from datetime import datetime, timedelta
 
 # --- FONCTION DE MISE À JOUR AUTO ---
-def update_live_data_if_needed():
+def sync_live_data():
+    conn = sqlite3.connect('oslo_live.db')
+    
+    # Étape A : Créer la table si elle n'existe pas (évite l'erreur "no such table")
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS live_stations (
+            station_id TEXT PRIMARY KEY, name TEXT, lat REAL, lon REAL, 
+            bikes_available INTEGER, docks_available INTEGER, last_updated TEXT
+        )
+    ''')
+    
+    # Étape B : Vérifier s'il faut mettre à jour
+    should_update = False
     try:
-        conn = sqlite3.connect('oslo_live.db')
-        last_update_str = pd.read_sql("SELECT MAX(last_updated) FROM live_stations", conn).iloc[0,0]
-        conn.close()
-        
-        last_update = datetime.strptime(last_update_str, "%Y-%m-%d %H:%M:%S")
-        if datetime.now() - last_update < timedelta(minutes=5):
-            return
+        last_up_query = pd.read_sql("SELECT MAX(last_updated) as last FROM live_stations", conn)
+        if last_up_query['last'].iloc[0] is None:
+            should_update = True
+        else:
+            last_up = datetime.strptime(last_up_query['last'].iloc[0], "%Y-%m-%d %H:%M:%S")
+            if datetime.now() - last_up > timedelta(minutes=5):
+                should_update = True
     except:
-        pass 
-    try:
-        INFO_URL = "https://gbfs.urbansharing.com/oslobysykkel.no/station_information.json"
-        STATUS_URL = "https://gbfs.urbansharing.com/oslobysykkel.no/station_status.json"
-        
-        df_info = pd.DataFrame(requests.get(INFO_URL).json()['data']['stations'])[['station_id', 'name', 'lat', 'lon']]
-        df_status = pd.DataFrame(requests.get(STATUS_URL).json()['data']['stations'])[['station_id', 'num_bikes_available', 'num_docks_available']]
-        
-        df_live = pd.merge(df_info, df_status, on='station_id')
-        df_live['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        conn = sqlite3.connect('oslo_live.db')
-        df_live.to_sql('live_stations', conn, if_exists='replace', index=False)
-        conn.close()
-    except Exception as e:
-        st.sidebar.error(f"Erreur mise à jour API : {e}")
+        should_update = True
 
-update_live_data_if_needed()
+    # Étape C : Appel API si nécessaire
+    if should_update:
+        try:
+            INFO_URL = "https://gbfs.urbansharing.com/oslobysykkel.no/station_information.json"
+            STATUS_URL = "https://gbfs.urbansharing.com/oslobysykkel.no/station_status.json"
+            
+            # Récupération
+            r_info = requests.get(INFO_URL).json()['data']['stations']
+            r_status = requests.get(STATUS_URL).json()['data']['stations']
+            
+            df_i = pd.DataFrame(r_info)[['station_id', 'name', 'lat', 'lon']]
+            df_s = pd.DataFrame(r_status)[['station_id', 'num_bikes_available', 'num_docks_available']]
+            
+            df_l = pd.merge(df_i, df_s, on='station_id')
+            df_l.rename(columns={'num_bikes_available': 'bikes_available', 'num_docks_available': 'docks_available'}, inplace=True)
+            df_l['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            df_l.to_sql('live_stations', conn, if_exists='replace', index=False)
+        except Exception as e:
+            st.error(f"Erreur API : {e}")
+    
+    conn.close()
+
+sync_live_data()
 
 st.set_page_config(page_title="Oslo - SAE Data", layout="wide")
 st.title("Oslo : Analyse et Monitoring du reseau")
@@ -155,33 +175,30 @@ with tab1:
 # ---------------------------------------------------------
 with tab2:
     st.header("Etat du reseau en direct")
-    st.info("Note technique : Conformement au RGPD, l'API Open Data d'Oslo ne publie pas les trajets en cours. Ce flux affiche le taux de remplissage des bornes.")
-
+    
     try:
-        conn_live = sqlite3.connect('oslo_live.db')
-        df_live = pd.read_sql("SELECT * FROM live_stations", conn_live)
-        conn_live.close()
+        conn = sqlite3.connect('oslo_live.db')
+        df_live = pd.read_sql("SELECT * FROM live_stations", conn)
+        conn.close()
 
         if not df_live.empty:
-            st.markdown("### Statistiques a l'instant T")
             kpi1, kpi2, kpi3 = st.columns(3)
-            kpi1.metric("Velos disponibles", int(df_live['bikes_available'].sum()))
-            kpi2.metric("Places vides", int(df_live['docks_available'].sum()))
-            kpi3.metric("Derniere mise a jour", str(df_live['last_updated'].max())[11:19])
+            # Utilisation de .get() pour éviter l'erreur si la colonne manque par miracle
+            bikes = df_live['bikes_available'].sum() if 'bikes_available' in df_live.columns else 0
+            docks = df_live['docks_available'].sum() if 'docks_available' in df_live.columns else 0
+            
+            kpi1.metric("Velos disponibles", int(bikes))
+            kpi2.metric("Places vides", int(docks))
+            kpi3.metric("Derniere mise a jour", df_live['last_updated'].max()[11:19])
 
             fig_live = px.scatter_mapbox(
-                df_live, lat="lat", lon="lon", 
-                size="bikes_available", size_max=20, color="bikes_available",
-                color_continuous_scale="Viridis",
-                hover_name="name", hover_data={"bikes_available": True, "docks_available": True, "lat": False, "lon": False},
-                zoom=11.5, mapbox_style="carto-positron", height=500
+                df_live, lat="lat", lon="lon", size="bikes_available",
+                color="bikes_available", color_continuous_scale="Viridis",
+                hover_name="name", zoom=11, mapbox_style="carto-positron", height=600
             )
             st.plotly_chart(fig_live, use_container_width=True)
-            
-            if st.button("Actualiser les donnees"):
-                st.rerun()
         else:
-            st.warning("Les donnees temps reel arrivent. Verifiez que api_feed.py tourne.")
-            
+            st.warning("Donnees en cours de telechargement...")
+            st.button("Forcer l'actualisation")
     except Exception as e:
-        st.warning(f"Base live introuvable. Avez-vous lance api_feed.py ? ({e})")
+        st.error(f"Erreur affichage : {e}")
