@@ -3,6 +3,38 @@ import pandas as pd
 import sqlite3
 import plotly.express as px
 import pydeck as pdk
+import requests
+from datetime import datetime, timedelta
+
+# --- FONCTION DE MISE À JOUR AUTO ---
+def update_live_data_if_needed():
+    try:
+        conn = sqlite3.connect('oslo_live.db')
+        last_update_str = pd.read_sql("SELECT MAX(last_updated) FROM live_stations", conn).iloc[0,0]
+        conn.close()
+        
+        last_update = datetime.strptime(last_update_str, "%Y-%m-%d %H:%M:%S")
+        if datetime.now() - last_update < timedelta(minutes=5):
+            return
+    except:
+        pass 
+    try:
+        INFO_URL = "https://gbfs.urbansharing.com/oslobysykkel.no/station_information.json"
+        STATUS_URL = "https://gbfs.urbansharing.com/oslobysykkel.no/station_status.json"
+        
+        df_info = pd.DataFrame(requests.get(INFO_URL).json()['data']['stations'])[['station_id', 'name', 'lat', 'lon']]
+        df_status = pd.DataFrame(requests.get(STATUS_URL).json()['data']['stations'])[['station_id', 'num_bikes_available', 'num_docks_available']]
+        
+        df_live = pd.merge(df_info, df_status, on='station_id')
+        df_live['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        conn = sqlite3.connect('oslo_live.db')
+        df_live.to_sql('live_stations', conn, if_exists='replace', index=False)
+        conn.close()
+    except Exception as e:
+        st.sidebar.error(f"Erreur mise à jour API : {e}")
+
+update_live_data_if_needed()
 
 st.set_page_config(page_title="Oslo - SAE Data", layout="wide")
 st.title("Oslo : Analyse et Monitoring du reseau")
