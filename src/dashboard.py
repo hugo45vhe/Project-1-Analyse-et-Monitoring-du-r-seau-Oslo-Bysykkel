@@ -220,7 +220,6 @@ with tab2:
             )
             st.plotly_chart(fig_live, use_container_width=True)
             
-            st.caption(f"Dernier rafraîchissement heure Paris : {time.strftime('%H:%M:%S')}")
         else:
             st.warning("La base de données est vide. Cliquez sur le bouton 'Actualiser' pour charger les données.")
 
